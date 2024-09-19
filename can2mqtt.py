@@ -161,14 +161,14 @@ class CanMessage2MQTT:
         try:
             for i, v in enumerate(self.topic_intervals):
                 if v:
-                    interval = int(v)
+                    mdata[self.topic_intervals[i]] = int(v)
                 else:
-                    interval = 0
+                    mdata[self.topic_intervals[i]] = 0
         except BaseException as e:
             raise ValueError("Error applying interval \"%s\" to topic \"%s\"" % (v, self.topic_template, e))
         data.update(mdata)
         
-        for t, p in zip(self.topic_template, self.payload_template):
+        for i, (t, p) in enumerate(zip(self.topic_template, self.payload_template)):
             try:
                 topic= t.format(**data)
             except BaseException as e:
@@ -177,6 +177,10 @@ class CanMessage2MQTT:
                 payload= p.format(**data)
             except BaseException as e:
                 raise ValueError("Error formating payload string \"%s\": %s" % (p, e))
+            try:
+                interval = self.topic_intervals[i]
+            except BaseException as e:
+                raise ValueError("Error setting interval string \"%s\": %s" % (interval, e))
             
             yield topic, payload, interval
     
@@ -424,10 +428,11 @@ def main():
                         for t, p, i in rcvr.translate(m):
                             #If we haven't seen this topic set it to time - the interval so it will fire once before delay
                             if t not in times:
-                                times[t] = time.monotonic() - i
+                                times[t] = time.monotonic() - int(i)
                            
                             #Only publish topic if it's been long enough
-                            if time.monotonic() - times[t] >= i:
+                            if time.monotonic() - times[t] >= int(i):
+                                logging.debug("Topic: \"%s\" , Payload: \"%s\" , Interval: \"%s\"" % (t, p, i))
                                 r= client.publish(t, p)
                                 times[t] = time.monotonic()
                                 if not (r[0] == mqtt.MQTT_ERR_SUCCESS):
