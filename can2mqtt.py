@@ -422,10 +422,9 @@ def main():
                     rcvr= receivers[m.arbitration_id]
                     try:
                         for t, p, i in rcvr.translate(m):
-                            #Have we seen this topic before?
+                            #If we haven't seen this topic set it to time - the interval so it will fire once before delay
                             if t not in times:
-                                times[t] = time.monotonic()
-                                r= client.publish(t, p)
+                                times[t] = time.monotonic() - i
                            
                             #Only publish topic if it's been long enough
                             if time.monotonic() - times[t] >= i:
