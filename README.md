@@ -47,7 +47,7 @@ If you wish to reduce the number of MQTT messages being sent you can specify an 
 To specify the minimum interval a topic should be sent the `topic_template` has to be followed by the keyword "interval" and then the number of seconds to restrict additional messages for that topic
 
 # Logging
-For logging [python logging](https://docs.python.org/2/library/logging.html) is used.
+For logging [python logging](https://docs.python.org/3/library/logging.html) is used.
 
 # CANopen
 The special section `canopen` allows to configure the bridge to send some [CANopen](https://en.wikipedia.org/wiki/CANopen) specific messages.
