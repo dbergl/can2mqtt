@@ -5,11 +5,11 @@ sudo ip link add dev vcan0 type vcan
 sudo ip link set vcan0 up
 cansend vcan0 123#DEADBEEF0000
 """
-from __future__ import print_function
 import datetime
 import argparse
 import time
 import socket
+import os
 import sys
 from threading import Event, Thread
 
@@ -267,13 +267,34 @@ class MQTT2CanMessage:
 def main():
     parser = argparse.ArgumentParser(description="Bridge messages between CAN bus and MQTT server")
 
+    parser.add_argument("-i", "--interface", dest="can_interface",
+            help="can interface name like can0", default=os.environ.get("CAN_INTERFACE_NAME", "can0"))
+
     parser.add_argument("-c", "--config_name", dest="config_file",
-                        help="""Path and name of configuration file""",
-                        default="config.json")
+            help="""Path and name of configuration file""", default=os.environ.get("CONFIG_FILE", "config.json"))
 
-    parser.add_argument('-l', '--log_file', dest="log_file", help='''Path and name of log file''', default= None)
+    parser.add_argument("--MQTT_HOST", "--mqtt_host", dest="mqtt_host",
+                        help="Host URL", default=os.environ.get("MQTT_HOST", "localhost"))
+    parser.add_argument("--MQTT_PORT", "--mqtt_port", dest="mqtt_port",
+                        help="Port", type=int, default=os.environ.get("MQTT_PORT", "1883"))
 
-    parser.add_argument("-v", dest="verbosity", help='''Log level''', default="INFO", choices= ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"])
+    # optional settings
+    parser.add_argument("--MQTT_USERNAME", "--mqtt_username", dest="mqtt_user",
+                        help="username for mqtt", default=os.environ.get("MQTT_USERNAME"))
+    parser.add_argument("--MQTT_PASSWORD", "--mqtt_password", dest="mqtt_pass",
+                        help="password for mqtt", default=os.environ.get("MQTT_PASSWORD"))
+    parser.add_argument("--MQTT_CLIENT_ID", "--mqtt_client_id", dest="mqtt_client_id",
+                        help="client id for mqtt", default=os.environ.get("MQTT_CLIENT_ID", "can2mqtt"))
+    parser.add_argument("--MQTT_CA", "--mqtt_ca", dest="mqtt_ca",
+                        help="ca for mqtt", default=os.environ.get("MQTT_CA"))
+    parser.add_argument("--MQTT_CERT", "--mqtt_cert", dest="mqtt_cert",
+                        help="cert for mqtt", default=os.environ.get("MQTT_CERT"))
+    parser.add_argument("--MQTT_KEY", "--mqtt_key", dest="mqtt_key",
+                        help="key for mqtt", default=os.environ.get("MQTT_KEY"))
+    parser.add_argument('-l', '--log_file', dest="log_file",
+            help='''Path and name of log file''', default=os.environ.get("LOG_FILE", None))
+
+    parser.add_argument("-v", dest="verbosity", help='''Log level''', default=os.environ.get("LOG_LEVEL", "INFO"), choices= ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"])
 
     args = parser.parse_args()
 
@@ -344,12 +365,12 @@ def main():
                     transmitters[s]= [tmtr]
     
     logging.info("Starting CAN bus")
-    if not jsoncfg.node_exists(c.canbus.interface):
+    if not args.can_interface:
         logging.error("No can interface specified. Valid interfaces are: %s" % can.interface.VALID_INTERFACES)
         sys.exit(1)
         
     try:
-        bus = can.interface.Bus(c.canbus.channel(), bustype=c.canbus.interface())
+        bus = can.interface.Bus(channel=args.can_interface, interface="socketcan")
         canBuffer= can.BufferedReader()
         notifier = can.Notifier(bus, [canBuffer], timeout=0.1)
     except BaseException as e:
@@ -357,11 +378,11 @@ def main():
         sys.exit(1)
     
     logging.info("Starting MQTT")
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1,client_id=c.mqtt.client_id("can2mqtt"), protocol=mqtt.MQTTv31)
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=args.mqtt_client_id, protocol=mqtt.MQTTv5)
     client.on_message= on_message
     client.user_data_set((bus, transmitters))
     try:
-        mqtt_errno= client.connect(c.mqtt.host("127.0.0.1"), c.mqtt.port(1883), 60)
+        mqtt_errno= client.connect(args.mqtt_host, args.mqtt_port, 60)
         if mqtt_errno!=0:
             raise Exception(error_string(mqtt_errno))
                             
