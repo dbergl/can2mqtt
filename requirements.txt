@@ -1,4 +1,4 @@
 json-cfg
 parse
-python-can==3.3.*
+python-can
 paho-mqtt

@@ -1,8 +1,4 @@
 {
-    canbus: {
-        channel: "vcan0",
-        interface: "socketcan_ctypes"
-    },
     canopen: {
         sync_interval: 10,
         sync_count: 6,
