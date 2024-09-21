@@ -8,7 +8,7 @@ RUN  apt-get update && apt-get install build-essential -y
 
 RUN pip install --upgrade pip
 
-RUN if [ "${TARGETPLATFORM}" == "linux/arm/v7" ]; then \
+RUN if [ "${TARGETPLATFORM}" = "linux/arm/v7" ]; then \
   MSGPACK_PUREPYTHON=1 pip install --user --no-cache-dir -r requirements.txt; \
   else \
   pip install --user --no-cache-dir -r requirements.txt; \
