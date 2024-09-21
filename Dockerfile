@@ -3,9 +3,11 @@ FROM python:3.12-slim-bookworm
 RUN pip install --upgrade pip
 RUN adduser worker
 
+USER worker
+
 WORKDIR /home/worker
 
-COPY --chown=worker:worker requirements.txt requirements.txt
+COPY --chown=worker:worker requirements.txt ./
 RUN pip install --user --no-cache-dir -r requirements.txt
 COPY --chown=worker:worker . ./
 
