@@ -17,7 +17,7 @@ RUN if [ "${TARGETPLATFORM}" = "linux/arm/v7" ]; then \
 FROM python:3.12-slim-bookworm 
 
 RUN adduser worker
-COPY --chown=worker:worker --from=builder /root/.local ./
+COPY --chown=worker:worker --from=builder /root/.local /home/worker/
 
 USER worker
 WORKDIR /home/worker
