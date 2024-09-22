@@ -1,5 +1,8 @@
-.git/
+.env
+.git
+.github
 .gitignore
+Dockerfile
 LICENSE
 README.md
 .config.json
