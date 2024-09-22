@@ -17,10 +17,11 @@ RUN if [ "${TARGETPLATFORM}" = "linux/arm/v7" ]; then \
 FROM python:3.12-slim-bookworm 
 
 RUN adduser worker
+COPY --chown=worker:worker --from=builder /root/.local ./
+
 USER worker
 WORKDIR /home/worker
 
-COPY --from=builder --chown=worker:worker /root/.local ./
 COPY --chown=worker:worker . ./
 
 ENV PATH="/home/worker/.local/bin:${PATH}"
