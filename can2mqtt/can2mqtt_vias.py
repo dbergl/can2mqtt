@@ -52,3 +52,9 @@ def socbyvolts(i):
 
     return round(soc)
 
+def volts_soc2json(i):
+    volts = float(i/10)
+    soc = socbyvolts(i)
+
+    return f'"{{"volts": "{volts}", "soc": "{soc}" }}'
+
