@@ -40,15 +40,33 @@ def socbyvolts(i):
     volts = float(i/10)
     soc = 0
 
-    if volts > 54.5:
+    # From https://github.com/ascv/socRenogyLiFePO4
+
+    if 54.4 > volts and volts <= 56.4:
         soc = 100
-        return soc
-    elif 51.5 <= volts and volts <= 54.5:
-        soc = (105.9668 / (1 + 2.718282**(-2.0705 * (volts - 52.493))))
-    elif volts < 51.5:
-        soc = (1.4473*volts - 58.4573)
+    # Use a logistic function at the top end
+    elif 52.4 <= volts and volts <= 54.4:
+        L = 101.191451
+        x0 = 52.537895
+        k = 3.16037696
+        soc = L / (1 + 2.718282**(-k * (volts - x0)))
+        soc = soc if soc < 100 else 100 # ensure we don't get values above 100
+    # Use a linear function in the middle
+    elif 51.6 <= volts and volts < 52.4:
+        soc = 25*volts - 1270
+    # Use a logistic function at the bottom end
+    elif 40 < volts < 51.6:
+        soc = 1.4473*volts - 58.457263
+        L = 36.440261
+        x0 = 51.29112
+        k = 0.3567057
+        soc = L / (1 + 2.718282**(-k * (volts - x0)))
+    # Handle slightly lower voltages not seen in the training data
+    elif 38 < volts and volts <= 40:
+        soc = 0
     else:
-        print(f"{volts} not in [0, 54.5]")
+        print(f"{volts} not in [0, 56.4]")
+        return soc
 
     return round(soc)
 
