@@ -56,5 +56,5 @@ def volts_soc2json(i):
     volts = float(i/10)
     soc = socbyvolts(i)
 
-    return f'"{{"volts": "{volts}", "soc": "{soc}" }}'
+    return f'{{"volts": "{volts}", "soc": "{soc}" }}'
 
