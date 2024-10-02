@@ -42,7 +42,7 @@ def socbyvolts(i):
 
     # From https://github.com/ascv/socRenogyLiFePO4
 
-    if 54.4 > volts and volts <= 56.4:
+    if 54.4 < volts and volts <= 58.4:
         soc = 100
     # Use a logistic function at the top end
     elif 52.4 <= volts and volts <= 54.4:
