@@ -70,9 +70,33 @@ def socbyvolts(i):
 
     return round(soc)
 
+def usablesocbyvolts(i):
+    #convert volts(passed as volts*10) to usable SOC as determined by volts instead of BMS reported
+    volts = float(i/10)
+    soc = 0
+
+    # From https://github.com/ascv/socRenogyLiFePO4
+
+    if 53.2 <= volts:
+        soc = 100
+    elif 51.6 <= volts and volts < 53.2:
+        soc = 0.08*volts + 51.2
+    # Use a logistic function at the bottom end
+    elif 51.2 <= volts < 51.6:
+        soc = 0.017*volts + 51.515
+    # Handle slightly lower voltages not seen in the training data
+    elif volts < 51.2:
+        soc = 0
+    else:
+        print(f"{volts} not in [0, 53.2]")
+        return soc
+
+    return round(soc)
+
 def volts_soc2json(i):
     volts = float(i/10)
     soc = socbyvolts(i)
+    usablesoc = usablesocbyvolts(i)
 
-    return f'{{"volts": "{volts}", "soc": "{soc}" }}'
+    return f'{{"volts": "{volts}", "soc": "{soc}", "usablesoc": "{usablesoc}"}}'
 
