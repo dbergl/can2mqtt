@@ -80,10 +80,10 @@ def usablesocbyvolts(i):
     if 53.2 <= volts:
         soc = 100
     elif 51.6 <= volts and volts < 53.2:
-        soc = 0.08*volts + 51.2
+        soc = (volts - 51.515) / 0.017
     # Use a logistic function at the bottom end
     elif 51.2 <= volts < 51.6:
-        soc = 0.017*volts + 51.515
+        soc = (volts - 51.2) / 0.08
     # Handle slightly lower voltages not seen in the training data
     elif volts < 51.2:
         soc = 0
