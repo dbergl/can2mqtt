@@ -447,6 +447,9 @@ def main():
                     rcvr= receivers[m.arbitration_id]
                     try:
                         for t, p, i in rcvr.translate(m):
+                            # If interval was not set it is None. Set to 0
+                            i = i or 0
+
                             #If we haven't seen this topic set it to time - the interval so it will fire once before delay
                             if t not in times:
                                 times[t] = time.monotonic() - int(i)
