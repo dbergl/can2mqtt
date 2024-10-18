@@ -21,6 +21,15 @@ def float2decimals(i):
     #just return the number with 2 decimal places
     return f"{i:.2f}"
 
+def bytetominorpatch(i):
+    """
+     Converts a single byte to minor.patch version.
+     Convert byte to hex and split the number to make minor and patch version
+    """
+    version = f"{i:x}"
+
+    return f"{version[0]}.{version[1]}"
+
 def socbyvolts(i):
     #convert volts(passed as volts*10) to SOC as determined by volts instead of BMS reported
     ''' Example:
