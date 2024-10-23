@@ -1,4 +1,5 @@
 from collections import defaultdict
+import logging
 
 int2on_off_dict= defaultdict(lambda:"unknown", {0:"off", 1:"on"})
 
@@ -20,6 +21,63 @@ def floatnegation(i):
 def float2decimals(i):
     #just return the number with 2 decimal places
     return f"{i:.2f}"
+
+def byte2relays(i):
+    FLAG_PRECHARGE   = 0x10    # Pre-charge relay
+    FLAG_HEATING     = 0x20    # Heating relay
+    FLAG_FANRELAY    = 0x40    # Fan Relay
+    FLAG_CUSTOM8     = 0x80    # Custom-8 Relay
+    FLAG_DISCHARGE   = 0x01    # Discharge Relay
+    FLAG_TTLNEGATIVE = 0x02    # Total Negative Relay
+    FLAG_SLOWCHARGE  = 0x04    # Slow-charge relay
+    FLAG_FAST        = 0x08    # Fast Relay
+
+    relayjson = str(
+        f'{{"Pre-Charge": "{"on" if i & FLAG_PRECHARGE else "off"}", '
+        f'"Heating": "{"on" if i & FLAG_HEATING else "off"}", '
+        f'"Fan": "{"on" if i & FLAG_FANRELAY else "off"}", '
+        f'"Custom-8": "{"on" if i & FLAG_CUSTOM8 else "off"}", '
+        f'"Discharge": "{"on" if i & FLAG_DISCHARGE else "off"}", '
+        f'"Total Negative": "{"on" if i & FLAG_TTLNEGATIVE else "off"}", '
+        f'"Slow-Charge": "{"on" if i & FLAG_SLOWCHARGE else "off"}", '
+        f'"Fast": "{"on" if i & FLAG_FAST else "off"}"}}')
+
+    return relayjson
+
+def val2celsius(i):
+    """
+    The Renogy BMS doesn't send temperature as a regualr value.
+    It is stored as (tempC + 400) * 10
+    """
+    return str((i - 400) / 10)
+
+def val2workmodel(i):
+    match i:
+        case 1:
+            return "Slow Charge Mode"
+        case 2:
+            return "Fast Charge Mode"
+        case 3:
+            return "Discharge Mode"
+        case 4:
+            return "Power-Up Mode"
+        case 5:
+            return "Power-Down Mode"
+
+    return "Unknown"
+
+def val2chargestatus(i):
+    match i:
+        case 0:
+            return "Stop Charging"
+        case 1:
+            return "Charging"
+        case 2:
+            return "Charging Failure"
+        case 3:
+            return "Charging Failure"
+
+    return "Unknown"
 
 def bytetominorpatch(i):
     """

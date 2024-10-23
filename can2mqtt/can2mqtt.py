@@ -434,6 +434,7 @@ def main():
     logging.info("Starting main loop")
     try:
         times = {} # Keep track of last seen time
+        topicpayloads = {} # Keep track of last payload by topic
         while True:
             # test delay for stress test
             # time.sleep(0.005)
@@ -457,10 +458,14 @@ def main():
                             #Only publish topic if it's been long enough
                             if time.monotonic() - times[t] >= int(i):
                                 logging.debug("Topic: \"%s\" , Payload: \"%s\" , Interval: \"%s\"" % (t, p, i))
-                                r= client.publish(t, p)
-                                times[t] = time.monotonic()
-                                if not (r[0] == mqtt.MQTT_ERR_SUCCESS):
-                                    logging.error("Error publishing message \"%s\" to topic \"%s\". Return code %s: %s" % (t, p, str(r[0]), mqtt.error_string(r[0])))
+                                # Let's also only publish the topic if it has changed
+                                if not (t in topicpayloads and p == topicpayloads[t]):
+                                    r= client.publish(t, p, 0, True)
+                                    if (r[0] == mqtt.MQTT_ERR_SUCCESS):
+                                        times[t] = time.monotonic()
+                                        topicpayloads[t] = p
+                                    else:
+                                        logging.error("Error publishing message \"%s\" to topic \"%s\". Return code %s: %s" % (t, p, str(r[0]), mqtt.error_string(r[0])))
                     except BaseException as e:
                         logging.error("Error relaying message {%s} via receiver %s: %s" % (m, rcvr.name, e))
                         rcvr.error_count+= 1
