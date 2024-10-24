@@ -1,5 +1,6 @@
 from collections import defaultdict
 import logging
+import json
 
 int2on_off_dict= defaultdict(lambda:"unknown", {0:"off", 1:"on"})
 
@@ -43,6 +44,33 @@ def byte2relays(i):
         f'"Fast": "{"on" if i & FLAG_FAST else "off"}"}}')
 
     return relayjson
+
+def alarmlevel(val : int) -> json:
+    #Alarm level     1     2     3
+    ALARM1_LEVELS = [0x10, 0x20, 0x30]
+    ALARM2_LEVELS = [0x40, 0x80, 0xC0]
+    ALARM3_LEVELS = [0x01, 0x02, 0x03]
+    ALARM4_LEVELS = [0x04, 0x08, 0x0C]
+    alarm1, alarm2, alarm3, alarm4 = 0,0,0,0
+    alarms = {"1": alarm1, "2": alarm2, "3": alarm3, "4": alarm4}
+
+    for i,level in enumerate(ALARM1_LEVELS):
+        if (val & level) == level:
+            alarms.update({"1": i + 1})
+
+    for i,level in enumerate(ALARM2_LEVELS):
+        if (val & level) == level:
+            alarms.update({"2": i + 1})
+
+    for i,level in enumerate(ALARM3_LEVELS):
+        if (val & level) == level:
+            alarms.update({"3": i + 1})
+
+    for i,level in enumerate(ALARM4_LEVELS):
+        if (val & level) == level:
+            alarms.update({"4": i + 1})
+
+    return json.dumps(alarms)
 
 def val2celsius(i):
     """
