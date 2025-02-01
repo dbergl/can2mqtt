@@ -45,6 +45,33 @@ def byte2relays(i):
 
     return relayjson
 
+def alarmleveltolist(val : int) -> list:
+    #Alarm level     1     2     3
+    ALARM1_LEVELS = [0x10, 0x20, 0x30]
+    ALARM2_LEVELS = [0x40, 0x80, 0xC0]
+    ALARM3_LEVELS = [0x01, 0x02, 0x03]
+    ALARM4_LEVELS = [0x04, 0x08, 0x0C]
+    alarm1, alarm2, alarm3, alarm4 = 0,0,0,0
+    alarms = [alarm1, alarm2, alarm3, alarm4]
+
+    for i,level in enumerate(ALARM1_LEVELS):
+        if (val & level) == level:
+            alarms[0] = i + 1
+
+    for i,level in enumerate(ALARM2_LEVELS):
+        if (val & level) == level:
+            alarms[1] = i + 1
+
+    for i,level in enumerate(ALARM3_LEVELS):
+        if (val & level) == level:
+            alarms[2] = i + 1
+
+    for i,level in enumerate(ALARM4_LEVELS):
+        if (val & level) == level:
+            alarms[3] = i + 1
+
+    return alarms
+
 def alarmlevel(val : int) -> json:
     #Alarm level     1     2     3
     ALARM1_LEVELS = [0x10, 0x20, 0x30]
@@ -97,13 +124,13 @@ def val2workmodel(i):
 def val2chargestatus(i):
     match i:
         case 0:
-            return "Stop Charging"
+            return "Charging stopped"
         case 1:
             return "Charging"
         case 2:
             return "Charging Failure"
         case 3:
-            return "Charging Failure"
+            return "Charging Finished"
 
     return "Unknown"
 
