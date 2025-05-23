@@ -5,12 +5,13 @@ sudo ip link add dev vcan0 type vcan
 sudo ip link set vcan0 up
 cansend vcan0 123#DEADBEEF0000
 """
-import datetime
 import argparse
-import time
-import socket
+import datetime
 import os
+import signal
+import socket
 import sys
+import time
 from threading import Event, Thread
 
 import struct
@@ -265,6 +266,18 @@ class MQTT2CanMessage:
         return canid, data
 
 def main():
+
+    def signal_handler(signum, frame):
+        logging.critical("shutting down.")
+        client.loop_stop()
+        client.disconnect()
+        notifier.stop()
+        bus.shutdown()
+        if sync_timer:
+            sync_timer.stop()
+        logging.shutdown()
+        exit(0)
+
     parser = argparse.ArgumentParser(description="Bridge messages between CAN bus and MQTT server")
 
     parser.add_argument("-i", "--interface", dest="can_interface",
@@ -430,57 +443,50 @@ def main():
     else:
         nmt_auto_start = False
             
-        
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     logging.info("Starting main loop")
-    try:
-        times = {} # Keep track of last seen time
-        topicpayloads = {} # Keep track of last payload by topic
-        while True:
-            # test delay for stress test
-            # time.sleep(0.005)
-            m= canBuffer.get_message()
-            if m is not None:
-                if nmt_auto_start:
-                    do_nmt_auto_start(m, bus)
+    times = {} # Keep track of last seen time
+    topicpayloads = {} # Keep track of last payload by topic
+    while True:
+        # test delay for stress test
+        # time.sleep(0.005)
+        m= canBuffer.get_message()
+        if m is not None:
+            if nmt_auto_start:
+                do_nmt_auto_start(m, bus)
 
-                if m.arbitration_id in receivers:
-                    times[m.arbitration_id] = time.time()
-                    rcvr= receivers[m.arbitration_id]
-                    try:
-                        for t, p, i in rcvr.translate(m):
-                            # If interval was not set it is None. Set to 0
-                            i = i or 0
+            if m.arbitration_id in receivers:
+                times[m.arbitration_id] = time.time()
+                rcvr= receivers[m.arbitration_id]
+                try:
+                    for t, p, i in rcvr.translate(m):
+                        # If interval was not set it is None. Set to 0
+                        i = i or 0
 
-                            #If we haven't seen this topic set it to time - the interval so it will fire once before delay
-                            if t not in times:
-                                times[t] = time.monotonic() - int(i)
-                           
-                            #Only publish topic if it's been long enough
-                            if time.monotonic() - times[t] >= int(i):
-                                logging.debug("Topic: \"%s\" , Payload: \"%s\" , Interval: \"%s\"" % (t, p, i))
-                                # Let's also only publish the topic if it has changed
-                                if not (t in topicpayloads and p == topicpayloads[t]):
-                                    r= client.publish(t, p, 0, True)
-                                    if (r[0] == mqtt.MQTT_ERR_SUCCESS):
-                                        times[t] = time.monotonic()
-                                        topicpayloads[t] = p
-                                    else:
-                                        logging.error("Error publishing message \"%s\" to topic \"%s\". Return code %s: %s" % (t, p, str(r[0]), mqtt.error_string(r[0])))
-                    except BaseException as e:
-                        logging.error("Error relaying message {%s} via receiver %s: %s" % (m, rcvr.name, e))
-                        rcvr.error_count+= 1
-                        if rcvr.error_count >= 10:
-                            logging.warning("Too many relaying errors via receiver %s. Removing this receiver" % rcvr.name)
-                            del receivers[m.arbitration_id]
-                
-                
-    except KeyboardInterrupt:
-        bus.shutdown()
-        notifier.stop()
-        client.loop_stop()
-        client.disconnect()
-        if sync_timer:
-            sync_timer.stop()
-
+                        #If we haven't seen this topic set it to time - the interval so it will fire once before delay
+                        if t not in times:
+                            times[t] = time.monotonic() - int(i)
+                       
+                        #Only publish topic if it's been long enough
+                        if time.monotonic() - times[t] >= int(i):
+                            logging.debug("Topic: \"%s\" , Payload: \"%s\" , Interval: \"%s\"" % (t, p, i))
+                            # Let's also only publish the topic if it has changed
+                            if not (t in topicpayloads and p == topicpayloads[t]):
+                                r= client.publish(t, p, 0, True)
+                                if (r[0] == mqtt.MQTT_ERR_SUCCESS):
+                                    times[t] = time.monotonic()
+                                    topicpayloads[t] = p
+                                else:
+                                    logging.error("Error publishing message \"%s\" to topic \"%s\". Return code %s: %s" % (t, p, str(r[0]), mqtt.error_string(r[0])))
+                except BaseException as e:
+                    logging.error("Error relaying message {%s} via receiver %s: %s" % (m, rcvr.name, e))
+                    rcvr.error_count+= 1
+                    if rcvr.error_count >= 10:
+                        logging.warning("Too many relaying errors via receiver %s. Removing this receiver" % rcvr.name)
+                        del receivers[m.arbitration_id]
+            
 if __name__ == "__main__":
+        
     main()
