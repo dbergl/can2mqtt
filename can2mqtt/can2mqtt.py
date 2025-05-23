@@ -5,12 +5,13 @@ sudo ip link add dev vcan0 type vcan
 sudo ip link set vcan0 up
 cansend vcan0 123#DEADBEEF0000
 """
-import datetime
 import argparse
-import time
-import socket
+import datetime
 import os
+import signal
+import socket
 import sys
+import time
 from threading import Event, Thread
 
 import struct
@@ -264,6 +265,17 @@ class MQTT2CanMessage:
             
         return canid, data
 
+def signal_handler(signum, frame):
+    logging.critical("shutting down.")
+    bus.shutdown()
+    notifier.stop()
+    client.loop_stop()
+    client.disconnect()
+    if sync_timer:
+        sync_timer.stop()
+    logging.shutdown()
+    exit(0)
+
 def main():
     parser = argparse.ArgumentParser(description="Bridge messages between CAN bus and MQTT server")
 
@@ -430,6 +442,8 @@ def main():
     else:
         nmt_auto_start = False
             
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
         
     logging.info("Starting main loop")
     try:
