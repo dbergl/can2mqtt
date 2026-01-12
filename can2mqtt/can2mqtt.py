@@ -16,6 +16,7 @@ from threading import Event, Thread
 
 import struct
 import parse
+import json
 import jsoncfg
 import logging
 
@@ -376,6 +377,13 @@ def main():
                     transmitters[s].append(tmtr)
                 else:
                     transmitters[s]= [tmtr]
+
+    hadiscovery= dict()
+    if jsoncfg.node_exists(c.hadiscovery):
+        logging.info("Loading HA MQTT Discovery")
+        hadiscovery = c.hadiscovery
+        discoverypayload = hadiscovery.get_as_dict()
+        logging.info(json.dumps(discoverypayload))
     
     logging.info("Starting CAN bus")
     if not args.can_interface:
