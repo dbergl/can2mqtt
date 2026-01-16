@@ -2,7 +2,8 @@ name: CI to GHCR
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - "*"
     tags:
       - "v*.*.*"
   pull_request:
@@ -38,6 +39,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # set latest tag for default branch
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
       -
         name: Log into registry ${{ env.REGISTRY }}
