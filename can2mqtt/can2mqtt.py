@@ -69,37 +69,6 @@ def do_nmt_auto_start(m, bus):
             msg = bytearray([1, device_id])
             bus.send(can.Message(extended_id= False, arbitration_id= 0x000, data= msg))
     
-   
-def on_message(client, userdata, message):
-    CANBus= userdata[0]
-    transmitters= userdata[1]
-    for sub in filter(lambda sub: mqtt.topic_matches_sub(sub, message.topic), transmitters.keys()):
-        tmtrs= transmitters[sub]
-        for tmtr in tmtrs:
-            try:
-                canid, data= tmtr.translate(message.topic, message.payload)
-            except BaseException as e:
-                logging.error("Error translating mqtt message \"%s\" from topic \"%s\" via transmitter %s: %s" % (message.payload, message.topic, tmtr.name, e))
-                tmtr.error_count+= 1
-                if tmtr.error_count >= 10:
-                    logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
-                    transmitters[sub].remove(tmtr)
-                continue
-            
-            try:
-                m= can.Message(extended_id= False, arbitration_id= canid, data= data)
-            except BaseException as e:
-                logging.error("Error forming can message id= \"%s\", data \"%s\" via transmitter %s: %s" % (canid, data, tmtr.name, e))
-                tmtr.error_count+= 1
-                if tmtr.error_count >= 10:
-                    logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
-                    transmitters[sub].remove(tmtr)
-                continue
-            try:
-                CANBus.send(m)
-            except BaseException as e:
-                logging.error("Error sending can message {%s}: %s" % (m, e))
-                        
 
 def testForStringList(l, n):
     if not isinstance(l, list):
@@ -271,6 +240,7 @@ def main():
     def signal_handler(signum, frame):
         logging.critical("shutting down.")
         client.loop_stop()
+        client.publish(will_topic, payload="offline", qos=1, retain=True)
         client.disconnect()
         notifier.stop()
         bus.shutdown()
@@ -278,6 +248,57 @@ def main():
             sync_timer.stop()
         logging.shutdown()
         exit(0)
+
+    def on_connect(client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
+            # Subscribe to HA birth message so we can resend autodiscovery if HA restarts
+            client.subscribe(ha_birth_topic)
+            client.publish(birth_topic, payload=birth_payload, qos=1, retain=True)
+            if ha_payload:
+                client.publish(ha_discovery_topic, payload=json.dumps(ha_payload), qos=1, retain=False)
+        else:
+           logging.critical(f"Failed to connect to mqtt broker: {reason_code}")
+    
+    def on_disconnect(client, userdata, flags, reason_code, properties):
+        if reason_code > 0:
+            logging.error(f"Unexpected disconnection (Reason: {reason_code}), broker will publish Will")
+   
+    def on_message(client, userdata, message):
+        CANBus= userdata[0]
+        transmitters= userdata[1]
+        for sub in filter(lambda sub: mqtt.topic_matches_sub(sub, message.topic), transmitters.keys()):
+            tmtrs= transmitters[sub]
+            for tmtr in tmtrs:
+                try:
+                    canid, data= tmtr.translate(message.topic, message.payload)
+                except BaseException as e:
+                    logging.error("Error translating mqtt message \"%s\" from topic \"%s\" via transmitter %s: %s" % (message.payload, message.topic, tmtr.name, e))
+                    tmtr.error_count+= 1
+                    if tmtr.error_count >= 10:
+                        logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
+                        transmitters[sub].remove(tmtr)
+                    continue
+                
+                try:
+                    m= can.Message(extended_id= False, arbitration_id= canid, data= data)
+                except BaseException as e:
+                    logging.error("Error forming can message id= \"%s\", data \"%s\" via transmitter %s: %s" % (canid, data, tmtr.name, e))
+                    tmtr.error_count+= 1
+                    if tmtr.error_count >= 10:
+                        logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
+                        transmitters[sub].remove(tmtr)
+                    continue
+                try:
+                    CANBus.send(m)
+                except BaseException as e:
+                    logging.error("Error sending can message {%s}: %s" % (m, e))
+
+        # If we receive a message that HA is online publish HA Autodiscovery topic
+        if mqtt.topic_matches_sub(ha_birth_topic, message.topic):
+            if message.payload.decode(encoding="utf-8") == ha_birth_payload:
+                if ha_payload:
+                    client.publish(ha_discovery_topic, payload=json.dumps(ha_payload), qos=1, retain=False)
+                        
 
     parser = argparse.ArgumentParser(description="Bridge messages between CAN bus and MQTT server")
 
@@ -378,12 +399,19 @@ def main():
                 else:
                     transmitters[s]= [tmtr]
 
-    hadiscovery= dict()
-    if jsoncfg.node_exists(c.hadiscovery):
-        logging.info("Loading HA MQTT Discovery")
-        hadiscovery = c.hadiscovery
-        discoverypayload = hadiscovery.get_as_dict()
-        logging.info(json.dumps(discoverypayload))
+    # Setup topics and payloads for Birth, LWT, and HA Autodiscovery
+    ha_discovery_prefix = c.hadiscovery.discovery_prefix('homeassistant')
+    ha_discovery_topic = ha_discovery_prefix + '/device/can_bridge_renogy_bms/config'
+    ha_birth_topic = ha_discovery_prefix + '/' + c.hadiscovery.ha_birth_topic('status')
+    ha_birth_payload = c.hadiscovery.ha_birth_payload('online')
+    ha_payload = c.hadiscovery.payload(None)
+
+    birth_topic = c.mqtt.birth.topic('bms/bridge/state')
+    birth_payload = c.mqtt.birth.payload('online')
+
+    will_topic = c.mqtt.will.topic('bms/bridge/state')
+    will_payload = c.mqtt.will.payload('offline')
+
     
     logging.info("Starting CAN bus")
     if not args.can_interface:
@@ -400,7 +428,15 @@ def main():
     
     logging.info("Starting MQTT")
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=args.mqtt_client_id, protocol=mqtt.MQTTv5)
+
+    # --- Setting the Last Will ---
+    # This message will be sent if connection drops unexpectedly
+    client.will_set(will_topic, payload=will_payload, qos=1, retain=True)
+
     client.on_message= on_message
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+
     client.user_data_set((bus, transmitters))
     try:
         mqtt_errno= client.connect(args.mqtt_host, args.mqtt_port, 60)
@@ -413,7 +449,6 @@ def main():
         bus.shutdown()
         notifier.stop()
         sys.exit(1)
-        
         
     logging.info("Adding MQTT subscriptions")
     for s in transmitters:
