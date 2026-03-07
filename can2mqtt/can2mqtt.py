@@ -16,6 +16,7 @@ from threading import Event, Thread
 
 import struct
 import parse
+import json
 import jsoncfg
 import logging
 
@@ -67,38 +68,7 @@ def do_nmt_auto_start(m, bus):
         if len(m.data)>0 and m.data[0]!=5:
             msg = bytearray([1, device_id])
             bus.send(can.Message(extended_id= False, arbitration_id= 0x000, data= msg))
-    
-   
-def on_message(client, userdata, message):
-    CANBus= userdata[0]
-    transmitters= userdata[1]
-    for sub in filter(lambda sub: mqtt.topic_matches_sub(sub, message.topic), transmitters.keys()):
-        tmtrs= transmitters[sub]
-        for tmtr in tmtrs:
-            try:
-                canid, data= tmtr.translate(message.topic, message.payload)
-            except BaseException as e:
-                logging.error("Error translating mqtt message \"%s\" from topic \"%s\" via transmitter %s: %s" % (message.payload, message.topic, tmtr.name, e))
-                tmtr.error_count+= 1
-                if tmtr.error_count >= 10:
-                    logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
-                    transmitters[sub].remove(tmtr)
-                continue
-            
-            try:
-                m= can.Message(extended_id= False, arbitration_id= canid, data= data)
-            except BaseException as e:
-                logging.error("Error forming can message id= \"%s\", data \"%s\" via transmitter %s: %s" % (canid, data, tmtr.name, e))
-                tmtr.error_count+= 1
-                if tmtr.error_count >= 10:
-                    logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
-                    transmitters[sub].remove(tmtr)
-                continue
-            try:
-                CANBus.send(m)
-            except BaseException as e:
-                logging.error("Error sending can message {%s}: %s" % (m, e))
-                        
+
 
 def testForStringList(l, n):
     if not isinstance(l, list):
@@ -111,7 +81,7 @@ def testForStringList(l, n):
 class CanMessage2MQTT:
     def __init__(self, name, unpack_template, var_names, topic_template, payload_template):
         self.name= name
-        
+
         if not isinstance(unpack_template, str):
             raise ValueError("Parameter unpack_template must be a string")
         self.unpack_template= unpack_template
@@ -124,7 +94,7 @@ class CanMessage2MQTT:
                 self.var_vias.append(r[1])
             else:
                 self.var_vias.append(None)
-                    
+
         self.topic_template= testForStringList(topic_template, "topic_template")
         self.topic_intervals= []
         for i, v in enumerate(self.topic_template):
@@ -137,8 +107,8 @@ class CanMessage2MQTT:
 
         self.payload_template= testForStringList(payload_template, "payload_template")
         self.error_count= 0
-        
-        
+
+
     def translate(self, m):
         data= dict()
         data['canid']= m.arbitration_id
@@ -168,7 +138,7 @@ class CanMessage2MQTT:
         except BaseException as e:
             raise ValueError("Error applying interval \"%s\" to topic \"%s\"" % (v, self.topic_template, e))
         data.update(mdata)
-        
+
         for i, (t, p) in enumerate(zip(self.topic_template, self.payload_template)):
             try:
                 topic= t.format(**data)
@@ -182,14 +152,14 @@ class CanMessage2MQTT:
                 interval = self.topic_intervals[i]
             except BaseException as e:
                 raise ValueError("Error setting interval string \"%s\": %s" % (interval, e))
-            
+
             yield topic, payload, interval
-    
-    
+
+
 class MQTT2CanMessage:
     def __init__(self, name, canid, subscriptions, pack_template, var_names, topic_template, payload_template):
         self.name= name
-        
+
         if not isinstance(canid, str) and not isinstance(canid, int):
             raise ValueError("Parameter canid must be a string or an int")
         if isinstance(canid, str):
@@ -197,9 +167,9 @@ class MQTT2CanMessage:
                 canid= int(canid, 0)
             except:
                 pass
-            
+
         self.subscriptions= testForStringList(subscriptions, "subscriptions")
-        
+
         if not isinstance(pack_template, str):
             raise ValueError("Parameter pack_template must be a string")
         self.canid= canid
@@ -215,33 +185,33 @@ class MQTT2CanMessage:
                 raise ValueError("Error compiling topic_template: %s" % e)
         else:
             self.topic_template= None
-            
+
         if not isinstance(payload_template, str):
             raise ValueError("Parameter payload_template must be a string")
         try:
             self.payload_template= parse.compile(payload_template)
         except BaseException as e:
             raise ValueError("Error compiling payload_template: %s" % e)
-        
+
         self.error_count= 0
-        
-        
+
+
     def translate(self, topic, payload):
         vd= dict()
-        
+
         if self.topic_template:
             try:
                 topic_vals= self.topic_template.search(topic)
                 vd.update(topic_vals.named)
             except BaseException as e:
                 raise ValueError("Error parsing topic \"%s\": %s" % (topic, e))
-            
+
         try:
             payload_vals= self.payload_template.search(payload)
             vd.update(payload_vals.named)
         except BaseException as e:
             raise ValueError("Error parsing payload \"%s\": %s" % (payload, e))
-        
+
         if isinstance(self.canid, int):
             canid= self.canid
         else:
@@ -252,17 +222,17 @@ class MQTT2CanMessage:
                     canid= int(vd[self.canid], 0)
             except BaseException as e:
                 raise ValueError("Error forming can id from value \"%s\": %s" % (self.canid, e))
-        
+
         try:
             vals= [vd[v] for v in self.var_names]
         except BaseException as e:
             raise ValueError("Error collecting values: %s" % e)
-        
+
         try:
             data= struct.pack(self.pack_template, *vals)
         except BaseException as e:
             raise ValueError("Error packing can data: %s" % e)
-            
+
         return canid, data
 
 def main():
@@ -270,6 +240,7 @@ def main():
     def signal_handler(signum, frame):
         logging.critical("shutting down.")
         client.loop_stop()
+        client.publish(will_topic, payload="offline", qos=1, retain=True)
         client.disconnect()
         notifier.stop()
         bus.shutdown()
@@ -277,6 +248,57 @@ def main():
             sync_timer.stop()
         logging.shutdown()
         exit(0)
+
+    def on_connect(client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
+            # Subscribe to HA birth message so we can resend autodiscovery if HA restarts
+            client.subscribe(ha_birth_topic)
+            client.publish(birth_topic, payload=birth_payload, qos=1, retain=True)
+            if ha_payload:
+                client.publish(ha_discovery_topic, payload=json.dumps(ha_payload), qos=1, retain=False)
+        else:
+           logging.critical(f"Failed to connect to mqtt broker: {reason_code}")
+
+    def on_disconnect(client, userdata, flags, reason_code, properties):
+        if reason_code > 0:
+            logging.error(f"Unexpected disconnection (Reason: {reason_code}), broker will publish Will")
+
+    def on_message(client, userdata, message):
+        CANBus= userdata[0]
+        transmitters= userdata[1]
+        for sub in filter(lambda sub: mqtt.topic_matches_sub(sub, message.topic), transmitters.keys()):
+            tmtrs= transmitters[sub]
+            for tmtr in tmtrs:
+                try:
+                    canid, data= tmtr.translate(message.topic, message.payload)
+                except BaseException as e:
+                    logging.error("Error translating mqtt message \"%s\" from topic \"%s\" via transmitter %s: %s" % (message.payload, message.topic, tmtr.name, e))
+                    tmtr.error_count+= 1
+                    if tmtr.error_count >= 10:
+                        logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
+                        transmitters[sub].remove(tmtr)
+                    continue
+
+                try:
+                    m= can.Message(extended_id= False, arbitration_id= canid, data= data)
+                except BaseException as e:
+                    logging.error("Error forming can message id= \"%s\", data \"%s\" via transmitter %s: %s" % (canid, data, tmtr.name, e))
+                    tmtr.error_count+= 1
+                    if tmtr.error_count >= 10:
+                        logging.warning("Too many relaying errors via transmitter %s. Removing this transmitter" % tmtr.name)
+                        transmitters[sub].remove(tmtr)
+                    continue
+                try:
+                    CANBus.send(m)
+                except BaseException as e:
+                    logging.error("Error sending can message {%s}: %s" % (m, e))
+
+        # If we receive a message that HA is online publish HA Autodiscovery topic
+        if mqtt.topic_matches_sub(ha_birth_topic, message.topic):
+            if message.payload.decode(encoding="utf-8") == ha_birth_payload:
+                if ha_payload:
+                    client.publish(ha_discovery_topic, payload=json.dumps(ha_payload), qos=1, retain=False)
+
 
     parser = argparse.ArgumentParser(description="Bridge messages between CAN bus and MQTT server")
 
@@ -316,14 +338,14 @@ def main():
         logging.basicConfig(level=numeric_level, filename=args.log_file, filemode='w', format='%(asctime)s %(levelname)s:%(message)s')
     else:
         logging.basicConfig(level=numeric_level, format='%(asctime)s %(levelname)s:%(message)s')
-    
+
     logging.info("Reading configuration")
     try:
         c = jsoncfg.load_config(args.config_file)
     except BaseException as e:
         logging.error("Error reading config file: %s" % e)
         sys.exit(1)
-    
+
     receivers= dict()
     if jsoncfg.node_exists(c.receivers):
         logging.info("Loading receivers")
@@ -340,8 +362,8 @@ def main():
             except ValueError as e:
                 logging.error("Could not load receiver %s (#%d): %s" % (name, i+1, e))
                 continue
-                
-            
+
+
             if not isinstance(canid, list):
                 canids= [canid]
             for canid in canids:
@@ -355,7 +377,7 @@ def main():
                     logging.error("Could not add receiver %s (#%d) to listen to can id %s because it is neither string nor int" % (name, i+1, str(canid)))
                     continue
                 receivers[canid]= rcvr
-    
+
     transmitters= dict()
     if jsoncfg.node_exists(c.transmitters):
         logging.info("Loading transmitters")
@@ -370,18 +392,33 @@ def main():
             except ValueError as e:
                 logging.error("Could not load transmitter %s (#%d): %s" % (name, i+1, e))
                 continue
-                
+
             for s in tmtr.subscriptions:
                 if s in transmitters:
                     transmitters[s].append(tmtr)
                 else:
                     transmitters[s]= [tmtr]
-    
+
     logging.info("Starting CAN bus")
     if not args.can_interface:
         logging.error("No can interface specified. Valid interfaces are: %s" % can.interface.VALID_INTERFACES)
         sys.exit(1)
-        
+
+    # Setup topics and payloads for Birth, LWT, and HA Autodiscovery
+    ha_discovery_prefix = c.hadiscovery.discovery_prefix('homeassistant')
+    ha_discovery_device = c.hadiscovery.discovery_topic(f'can_bridge_{args.can_interface}')
+    ha_discovery_topic = f'{ha_discovery_prefix}/device/{ha_discovery_device}/config'
+    ha_birth_topic = ha_discovery_prefix + '/' + c.hadiscovery.ha_birth_topic('status')
+    ha_birth_payload = c.hadiscovery.ha_birth_payload('online')
+    ha_payload = c.hadiscovery.payload(None)
+
+    birth_topic = c.mqtt.birth.topic('bms/bridge/state')
+    birth_payload = c.mqtt.birth.payload('online')
+
+    will_topic = c.mqtt.will.topic('bms/bridge/state')
+    will_payload = c.mqtt.will.payload('offline')
+
+
     try:
         bus = can.interface.Bus(channel=args.can_interface, interface="socketcan")
         canBuffer= can.BufferedReader()
@@ -389,24 +426,31 @@ def main():
     except BaseException as e:
         logging.error("CAN bus error: %s" % e)
         sys.exit(1)
-    
+
     logging.info("Starting MQTT")
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,client_id=args.mqtt_client_id, protocol=mqtt.MQTTv5)
+
+    # --- Setting the Last Will ---
+    # This message will be sent if connection drops unexpectedly
+    client.will_set(will_topic, payload=will_payload, qos=1, retain=True)
+
     client.on_message= on_message
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+
     client.user_data_set((bus, transmitters))
     try:
         mqtt_errno= client.connect(args.mqtt_host, args.mqtt_port, 60)
         if mqtt_errno!=0:
             raise Exception(error_string(mqtt_errno))
-                            
+
         client.loop_start()
     except BaseException as e:
         logging.error("MQTT error: %s" % e)
         bus.shutdown()
         notifier.stop()
         sys.exit(1)
-        
-        
+
     logging.info("Adding MQTT subscriptions")
     for s in transmitters:
         try:
@@ -442,7 +486,7 @@ def main():
             nmt_auto_start = False
     else:
         nmt_auto_start = False
-            
+
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -468,7 +512,7 @@ def main():
                         #If we haven't seen this topic set it to time - the interval so it will fire once before delay
                         if t not in times:
                             times[t] = time.monotonic() - int(i)
-                       
+
                         #Only publish topic if it's been long enough
                         if time.monotonic() - times[t] >= int(i):
                             logging.debug("Topic: \"%s\" , Payload: \"%s\" , Interval: \"%s\"" % (t, p, i))
@@ -486,7 +530,7 @@ def main():
                     if rcvr.error_count >= 10:
                         logging.warning("Too many relaying errors via receiver %s. Removing this receiver" % rcvr.name)
                         del receivers[m.arbitration_id]
-            
+
 if __name__ == "__main__":
-        
+
     main()
