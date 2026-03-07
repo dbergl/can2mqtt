@@ -399,9 +399,15 @@ def main():
                 else:
                     transmitters[s]= [tmtr]
 
+    logging.info("Starting CAN bus")
+    if not args.can_interface:
+        logging.error("No can interface specified. Valid interfaces are: %s" % can.interface.VALID_INTERFACES)
+        sys.exit(1)
+
     # Setup topics and payloads for Birth, LWT, and HA Autodiscovery
     ha_discovery_prefix = c.hadiscovery.discovery_prefix('homeassistant')
-    ha_discovery_topic = ha_discovery_prefix + '/device/can_bridge_renogy_bms/config'
+    ha_discovery_device = c.hadiscovery.discovery_topic(f'can_bridge_{args.can_interface}')
+    ha_discovery_topic = f'{ha_discovery_prefix}/device/{ha_discovery_device}/config'
     ha_birth_topic = ha_discovery_prefix + '/' + c.hadiscovery.ha_birth_topic('status')
     ha_birth_payload = c.hadiscovery.ha_birth_payload('online')
     ha_payload = c.hadiscovery.payload(None)
@@ -412,11 +418,6 @@ def main():
     will_topic = c.mqtt.will.topic('bms/bridge/state')
     will_payload = c.mqtt.will.payload('offline')
 
-
-    logging.info("Starting CAN bus")
-    if not args.can_interface:
-        logging.error("No can interface specified. Valid interfaces are: %s" % can.interface.VALID_INTERFACES)
-        sys.exit(1)
 
     try:
         bus = can.interface.Bus(channel=args.can_interface, interface="socketcan")

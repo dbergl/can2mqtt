@@ -7,7 +7,12 @@
     mqtt: {
 //        username: "user", // not implemented yet
 //        password: "pass",// not implemented yet
-        will: { // not implemented yet
+
+        birth: {
+            topic: "birth/topic",
+            payload: "I am alive",
+        },
+        will: {
             topic: "/last/will/topic",
             payload: "I died"
         }
@@ -31,5 +36,36 @@
             payload_template: "{val1:d}",
 //            exact_match: true // not implemented yet
         },
-    ]
+    ],
+    hadiscovery: {
+        discovery_prefix: "homeassistant",
+        discovery_device_name: "can_bridge_can0",
+        ha_birth_topic: "status",
+        ha_birth_payload: "online",
+        payload: {
+            o: {
+                name: "can_bridge"
+            },
+            dev: {
+                mf: "RV-C",
+                ids: "RBT210LFP51S-12",
+                name: "Renogy 48v Battery BMS",
+                mdl: "RBT210LFP51S-12"
+            },
+            cmps: {
+                current: {
+                    p: "sensor",
+                    name: "Total Current",
+                    device_class: "current",
+                    unit_of_measurement: "A",
+                    suggested_display_precision: "2",
+                    value_template: "{{value}}",
+                    state_topic: "bms/current",
+                    unique_id: "RBT210LFP51S-12-current"
+                },
+            },
+            qos: "1",
+            avty_t: "bms/bridge/state",
+        }
+    }
 }
