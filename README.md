@@ -53,3 +53,12 @@ For logging [python logging](https://docs.python.org/3/library/logging.html) is 
 The special section `canopen` allows to configure the bridge to send some [CANopen](https://en.wikipedia.org/wiki/CANopen) specific messages.
 If `sync_interval` is specified a sync message is sent every interval seconds. If `sync_count` is specified the sync message has one data byte that cyclicly counts from 0 to the given count.
 If `auto_start` is true the program listens to CANopen NMT bootup and heartbeat messages and sends a start command to every node that indicates it is not in operational mode.
+
+# BMS settings (read/write multi-frame)
+The optional `bms_settings` section enables reading and modifying BMS user-configurable settings that live in a multi-frame CAN payload (one read command, N response frames; writes resend the full payload as N frames).
+
+On startup, can2mqtt sends `read_request_canid` with `read_request_data` and listens for `frame_count` consecutive frames starting at `read_response_base`. Each entry in `settings` describes which byte slice (`frame_offset`, `byte_offset`, `size`, `signed`) of the assembled payload carries that value and how to scale it (`scale`); the decoded engineering value is published retained to `{state_topic_prefix}/{name}`.
+
+To modify a value, publish the new engineering value (as a string) to `{state_topic_prefix}/{name}{command_topic_suffix}`. The module updates its in-memory cache and resends all `frame_count` frames starting at `write_base`. Reserved/unknown bytes from the last read are preserved unchanged. **Writes that arrive before a successful read are dropped with an error**, since sending a partial payload could misconfigure the BMS. Publish to `refresh_topic` to re-issue the read request at any time.
+
+If a `hadiscovery.payload` is configured, every setting is automatically added as a Home Assistant `number` component, plus a `button` for the refresh topic. See `config.json.example` for the per-entry schema.

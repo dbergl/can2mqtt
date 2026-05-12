@@ -37,6 +37,52 @@
 //            exact_match: true // not implemented yet
         },
     ],
+    // bms_settings: BMS user-configurable settings exposed over MQTT + HA discovery.
+    // Behavior:
+    //   - On MQTT connect, send `read_request_canid` with `read_request_data` to ask
+    //     the BMS to report all settings.
+    //   - Listen for `frame_count` response frames starting at `read_response_base`.
+    //     Once a complete set arrives, decode each entry and publish to
+    //     `{state_topic_prefix}/{name}` (retained).
+    //   - When a write arrives on `{state_topic_prefix}/{name}{command_topic_suffix}`,
+    //     update the cache and resend all `frame_count` frames starting at `write_base`.
+    //     Writes are DROPPED with an error if no successful read has populated the cache.
+    //   - Publishing anything to `refresh_topic` re-issues the read request.
+    bms_settings: {
+        read_request_canid: "0x500",
+        read_request_data: "AAAA0200FFFFFFFF",
+        read_response_base: "0x450",
+        write_base: "0x410",
+        frame_count: 11,
+        state_topic_prefix: "bms/settings",
+        command_topic_suffix: "/set",
+        refresh_topic: "bms/settings/refresh",
+        inter_frame_delay_ms: 10,
+        // Each entry: where the value lives in the multi-frame payload + scaling + HA hints.
+        // engineering_value = raw_int * scale; raw_int is big-endian, signed if specified.
+        settings: {
+            AH: {
+                frame_offset: 0, byte_offset: 0, size: 2, signed: false,
+                scale: 0.1, unit: "Ah",
+                min: 0, max: 500, step: 0.1,
+                friendly_name: "Battery Capacity"
+            },
+            cvol_h1: {
+                frame_offset: 4, byte_offset: 0, size: 2, signed: false,
+                scale: 0.001, unit: "V",
+                min: 2.0, max: 4.5, step: 0.001,
+                device_class: "voltage",
+                friendly_name: "Cell Overvoltage Alarm L1"
+            },
+            ch_temp_l3: {
+                frame_offset: 5, byte_offset: 6, size: 1, signed: true,
+                scale: 1, unit: "°C",
+                min: -40, max: 40, step: 1,
+                device_class: "temperature",
+                friendly_name: "Charge Low-Temp Alarm L3"
+            },
+        }
+    },
     hadiscovery: {
         discovery_prefix: "homeassistant",
         discovery_device_name: "can_bridge_can0",

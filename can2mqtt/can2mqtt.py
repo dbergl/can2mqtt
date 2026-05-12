@@ -24,6 +24,7 @@ import can
 import paho.mqtt.client as mqtt
 
 import can2mqtt_vias as vias
+from bms_settings import BmsSettings
 
 class RepeatedTimer:
     """Repeat `function` every `interval` seconds."""
@@ -256,6 +257,8 @@ def main():
             client.publish(birth_topic, payload=birth_payload, qos=1, retain=True)
             if ha_payload:
                 client.publish(ha_discovery_topic, payload=json.dumps(ha_payload), qos=1, retain=False)
+            if userdata[2] is not None:
+                userdata[2].request_read()
         else:
            logging.critical(f"Failed to connect to mqtt broker: {reason_code}")
 
@@ -266,6 +269,9 @@ def main():
     def on_message(client, userdata, message):
         CANBus= userdata[0]
         transmitters= userdata[1]
+        bms_settings= userdata[2]
+        if bms_settings is not None and bms_settings.handle_mqtt(message.topic, message.payload):
+            return
         for sub in filter(lambda sub: mqtt.topic_matches_sub(sub, message.topic), transmitters.keys()):
             tmtrs= transmitters[sub]
             for tmtr in tmtrs:
@@ -438,7 +444,22 @@ def main():
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
 
-    client.user_data_set((bus, transmitters))
+    bms_settings = None
+    if jsoncfg.node_exists(c.bms_settings):
+        try:
+            bms_cfg = c.bms_settings(None)
+            ids = (ha_payload or {}).get("dev", {}).get("ids") if ha_payload else None
+            unique_id_prefix = ids or ha_discovery_device
+            bms_settings = BmsSettings(bms_cfg, bus, client, unique_id_prefix)
+            notifier.add_listener(bms_settings)
+            if ha_payload:
+                bms_settings.augment_ha_payload(ha_payload)
+            logging.info("BMS settings module loaded with %d entries", len(bms_settings.settings))
+        except Exception as e:
+            logging.error("Could not load bms_settings: %s", e)
+            bms_settings = None
+
+    client.user_data_set((bus, transmitters, bms_settings))
     try:
         mqtt_errno= client.connect(args.mqtt_host, args.mqtt_port, 60)
         if mqtt_errno!=0:
@@ -458,6 +479,12 @@ def main():
             client.subscribe(s)
         except BaseException as e:
             logging.error("Error adding subscribtion \"%s\": %s" % (s, e))
+    if bms_settings is not None:
+        for s in bms_settings.mqtt_subscriptions():
+            try:
+                client.subscribe(s)
+            except BaseException as e:
+                logging.error("Error adding bms_settings subscription \"%s\": %s" % (s, e))
 
     if jsoncfg.node_exists(c.canopen.sync_interval):
         logging.info("Adding CANopen sync master")
