@@ -51,6 +51,7 @@ class BmsSettings(can.Listener):
                 "step": entry.get("step"),
                 "device_class": entry.get("device_class"),
                 "friendly_name": entry.get("friendly_name", name),
+                "read_only": bool(entry.get("read_only", False)),
             }
 
         self._lock = threading.Lock()
@@ -137,6 +138,9 @@ class BmsSettings(can.Listener):
 
     def _handle_write(self, name, payload):
         entry = self.settings[name]
+        if entry["read_only"]:
+            logging.warning("BMS settings: ignoring write to read-only setting %s", name)
+            return
         try:
             value = float(payload.decode("utf-8").strip() if isinstance(payload, (bytes, bytearray)) else payload)
         except Exception as e:
@@ -202,21 +206,22 @@ class BmsSettings(can.Listener):
         cmps = ha_payload.setdefault("cmps", {})
         for name, e in self.settings.items():
             component = {
-                "p": "number",
+                "p": "sensor" if e["read_only"] else "number",
                 "name": e["friendly_name"],
                 "state_topic": f"{self.state_topic_prefix}/{name}",
-                "command_topic": f"{self.state_topic_prefix}/{name}{self.command_topic_suffix}",
                 "unique_id": f"{self.unique_id_prefix}-setting-{name}",
                 "value_template": "{{ value }}",
             }
+            if not e["read_only"]:
+                component["command_topic"] = f"{self.state_topic_prefix}/{name}{self.command_topic_suffix}"
+                if e["min"] is not None:
+                    component["min"] = e["min"]
+                if e["max"] is not None:
+                    component["max"] = e["max"]
+                if e["step"] is not None:
+                    component["step"] = e["step"]
             if e["unit"]:
                 component["unit_of_measurement"] = e["unit"]
-            if e["min"] is not None:
-                component["min"] = e["min"]
-            if e["max"] is not None:
-                component["max"] = e["max"]
-            if e["step"] is not None:
-                component["step"] = e["step"]
             if e["device_class"]:
                 component["device_class"] = e["device_class"]
             cmps[f"setting_{name}"] = component
