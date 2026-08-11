@@ -507,7 +507,7 @@ def main():
         for s in bms_settings.mqtt_subscriptions():
             try:
                 client.subscribe(s)
-            except BaseException as e:
+            except Exception as e:
                 logging.error("Error adding bms_settings subscription \"%s\": %s" % (s, e))
 
     if jsoncfg.node_exists(c.canopen.sync_interval):
