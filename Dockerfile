@@ -1,12 +1,13 @@
 FROM python:3.14-slim AS builder
 
-RUN apt-get update && apt-get install build-essential -y
-
-RUN pip install --upgrade pip
+# No compiler toolchain here on purpose: every runtime dependency (json-cfg,
+# parse, python-can, paho-mqtt and their transitive deps) installs from a
+# prebuilt wheel, so nothing is built from source. Note that wrapt is a binary
+# wheel rather than a pure-Python one, so it only stays source-free while the
+# target platforms have wheels published; adding an exotic platform could pull
+# build-essential back in.
 
 COPY requirements.txt .
-
-ARG MSGPACK_PUREPYTHON=1
 
 RUN pip install --user --no-cache-dir -r requirements.txt
 
