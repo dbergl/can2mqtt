@@ -117,17 +117,17 @@ class CanMessage2MQTT:
         candata= m.data
         try:
             vals= struct.unpack(self.unpack_template, candata)
-        except BaseException as e:
+        except Exception as e:
             raise ValueError("Error unpacking can data: %s" % e)
         try:
             mdata= dict(zip(self.var_names, vals))
-        except BaseException as e:
+        except Exception as e:
             raise ValueError("Error assigning data to values: %s" % e)
         try:
             for i, v in enumerate(self.var_vias):
                 if v:
                     mdata[self.var_names[i]]= eval("vias."+v+"(mdata[\""+self.var_names[i]+"\"])")
-        except BaseException as e:
+        except Exception as e:
             raise ValueError("Error applying via \"%s\" to value \"%s\"= \"%s\": %s" % (v, self.var_names[i], mdata[self.var_names[i]], e))
         try:
             for i, v in enumerate(self.topic_intervals):
@@ -135,22 +135,22 @@ class CanMessage2MQTT:
                     mdata[self.topic_intervals[i]] = int(v)
                 else:
                     mdata[self.topic_intervals[i]] = 0
-        except BaseException as e:
-            raise ValueError("Error applying interval \"%s\" to topic \"%s\"" % (v, self.topic_template, e))
+        except Exception as e:
+            raise ValueError("Error applying interval \"%s\" to topic \"%s\": %s" % (v, self.topic_template, e))
         data.update(mdata)
 
         for i, (t, p) in enumerate(zip(self.topic_template, self.payload_template)):
             try:
                 topic= t.format(**data)
-            except BaseException as e:
+            except Exception as e:
                 raise ValueError("Error formating topic string \"%s\": %s" % (t, e))
             try:
                 payload= p.format(**data)
-            except BaseException as e:
+            except Exception as e:
                 raise ValueError("Error formating payload string \"%s\": %s" % (p, e))
             try:
                 interval = self.topic_intervals[i]
-            except BaseException as e:
+            except Exception as e:
                 raise ValueError("Error setting interval string \"%s\": %s" % (interval, e))
 
             yield topic, payload, interval
@@ -165,7 +165,8 @@ class MQTT2CanMessage:
         if isinstance(canid, str):
             try:
                 canid= int(canid, 0)
-            except:
+            except ValueError:
+                # Not a literal id; treat it as the name of a parsed variable
                 pass
 
         self.subscriptions= testForStringList(subscriptions, "subscriptions")
@@ -181,7 +182,7 @@ class MQTT2CanMessage:
                 raise ValueError("Parameter topic_template must be a string")
             try:
                 self.topic_template= parse.compile(topic_template)
-            except BaseException as e:
+            except Exception as e:
                 raise ValueError("Error compiling topic_template: %s" % e)
         else:
             self.topic_template= None
@@ -190,7 +191,7 @@ class MQTT2CanMessage:
             raise ValueError("Parameter payload_template must be a string")
         try:
             self.payload_template= parse.compile(payload_template)
-        except BaseException as e:
+        except Exception as e:
             raise ValueError("Error compiling payload_template: %s" % e)
 
         self.error_count= 0
@@ -203,13 +204,13 @@ class MQTT2CanMessage:
             try:
                 topic_vals= self.topic_template.search(topic)
                 vd.update(topic_vals.named)
-            except BaseException as e:
+            except Exception as e:
                 raise ValueError("Error parsing topic \"%s\": %s" % (topic, e))
 
         try:
             payload_vals= self.payload_template.search(payload)
             vd.update(payload_vals.named)
-        except BaseException as e:
+        except Exception as e:
             raise ValueError("Error parsing payload \"%s\": %s" % (payload, e))
 
         if isinstance(self.canid, int):
@@ -220,34 +221,57 @@ class MQTT2CanMessage:
                     canid= vd[self.canid]
                 else:
                     canid= int(vd[self.canid], 0)
-            except BaseException as e:
+            except Exception as e:
                 raise ValueError("Error forming can id from value \"%s\": %s" % (self.canid, e))
 
         try:
             vals= [vd[v] for v in self.var_names]
-        except BaseException as e:
+        except Exception as e:
             raise ValueError("Error collecting values: %s" % e)
 
         try:
             data= struct.pack(self.pack_template, *vals)
-        except BaseException as e:
+        except Exception as e:
             raise ValueError("Error packing can data: %s" % e)
 
         return canid, data
 
 def main():
 
+    shutdown_requested= Event()
+
     def signal_handler(signum, frame):
+        # Signal handlers run on the main thread and interrupt whatever it was
+        # doing, so do no real work here: raising or tearing down the bus and
+        # mqtt client from this context leaves them in an unpredictable state.
+        # Just record the request; the main loop drains and exits on its own.
+        if shutdown_requested.is_set():
+            # Second signal: the main loop is not draining. Leave now.
+            logging.critical("second signal received, exiting immediately.")
+            sys.exit(1)
         logging.critical("shutting down.")
-        client.loop_stop()
-        client.publish(will_topic, payload="offline", qos=1, retain=True)
+        shutdown_requested.set()
+
+    def shutdown():
+        # Publish the offline state while the network loop is still running and
+        # wait for it to reach the broker: disconnecting gracefully tells the
+        # broker not to publish our Will on our behalf.
+        try:
+            info= client.publish(will_topic, payload="offline", qos=1, retain=True)
+            # wait_for_publish() reports failure by raising; a timeout just returns
+            info.wait_for_publish(timeout=2)
+            if not info.is_published():
+                logging.warning("Timed out publishing offline state to \"%s\"" % will_topic)
+        except Exception as e:
+            logging.error("Error publishing offline state to \"%s\": %s" % (will_topic, e))
         client.disconnect()
+        client.loop_stop()
         notifier.stop()
         bus.shutdown()
         if sync_timer:
             sync_timer.stop()
+        logging.info("shutdown complete.")
         logging.shutdown()
-        exit(0)
 
     def on_connect(client, userdata, flags, reason_code, properties):
         if reason_code == 0:
@@ -271,7 +295,7 @@ def main():
             for tmtr in tmtrs:
                 try:
                     canid, data= tmtr.translate(message.topic, message.payload)
-                except BaseException as e:
+                except Exception as e:
                     logging.error("Error translating mqtt message \"%s\" from topic \"%s\" via transmitter %s: %s" % (message.payload, message.topic, tmtr.name, e))
                     tmtr.error_count+= 1
                     if tmtr.error_count >= 10:
@@ -281,7 +305,7 @@ def main():
 
                 try:
                     m= can.Message(extended_id= False, arbitration_id= canid, data= data)
-                except BaseException as e:
+                except Exception as e:
                     logging.error("Error forming can message id= \"%s\", data \"%s\" via transmitter %s: %s" % (canid, data, tmtr.name, e))
                     tmtr.error_count+= 1
                     if tmtr.error_count >= 10:
@@ -290,7 +314,7 @@ def main():
                     continue
                 try:
                     CANBus.send(m)
-                except BaseException as e:
+                except Exception as e:
                     logging.error("Error sending can message {%s}: %s" % (m, e))
 
         # If we receive a message that HA is online publish HA Autodiscovery topic
@@ -342,7 +366,7 @@ def main():
     logging.info("Reading configuration")
     try:
         c = jsoncfg.load_config(args.config_file)
-    except BaseException as e:
+    except Exception as e:
         logging.error("Error reading config file: %s" % e)
         sys.exit(1)
 
@@ -423,7 +447,7 @@ def main():
         bus = can.interface.Bus(channel=args.can_interface, interface="socketcan")
         canBuffer= can.BufferedReader()
         notifier = can.Notifier(bus, [canBuffer], timeout=0.1)
-    except BaseException as e:
+    except Exception as e:
         logging.error("CAN bus error: %s" % e)
         sys.exit(1)
 
@@ -445,7 +469,7 @@ def main():
             raise Exception(error_string(mqtt_errno))
 
         client.loop_start()
-    except BaseException as e:
+    except Exception as e:
         logging.error("MQTT error: %s" % e)
         bus.shutdown()
         notifier.stop()
@@ -456,7 +480,7 @@ def main():
         try:
             # message_callback_add()
             client.subscribe(s)
-        except BaseException as e:
+        except Exception as e:
             logging.error("Error adding subscribtion \"%s\": %s" % (s, e))
 
     if jsoncfg.node_exists(c.canopen.sync_interval):
@@ -493,9 +517,11 @@ def main():
     logging.info("Starting main loop")
     times = {} # Keep track of last seen time
     topicpayloads = {} # Keep track of last payload by topic
-    while True:
+    while not shutdown_requested.is_set():
         # test delay for stress test
         # time.sleep(0.005)
+        # get_message() blocks for at most 0.5s, so a shutdown request is
+        # picked up promptly.
         m= canBuffer.get_message()
         if m is not None:
             if nmt_auto_start:
@@ -523,13 +549,15 @@ def main():
                                     times[t] = time.monotonic()
                                     topicpayloads[t] = p
                                 else:
-                                    logging.error("Error publishing message \"%s\" to topic \"%s\". Return code %s: %s" % (t, p, str(r[0]), mqtt.error_string(r[0])))
-                except BaseException as e:
+                                    logging.error("Error publishing message \"%s\" to topic \"%s\". Return code %s: %s" % (p, t, str(r[0]), mqtt.error_string(r[0])))
+                except Exception as e:
                     logging.error("Error relaying message {%s} via receiver %s: %s" % (m, rcvr.name, e))
                     rcvr.error_count+= 1
                     if rcvr.error_count >= 10:
                         logging.warning("Too many relaying errors via receiver %s. Removing this receiver" % rcvr.name)
                         del receivers[m.arbitration_id]
+
+    shutdown()
 
 if __name__ == "__main__":
 
