@@ -240,6 +240,9 @@ class MQTT2CanMessage:
 def main():
 
     shutdown_requested= Event()
+    # Publishes dropped while the MQTT client is disconnected (shared by the
+    # main loop and on_connect)
+    publish_drops= {"count": 0}
 
     def signal_handler(signum, frame):
         # Signal handlers run on the main thread and interrupt whatever it was
@@ -276,8 +279,26 @@ def main():
 
     def on_connect(client, userdata, flags, reason_code, properties):
         if reason_code == 0:
+            if publish_drops["count"]:
+                logging.warning("MQTT reconnected; dropped %d publishes while disconnected", publish_drops["count"])
+                publish_drops["count"] = 0
+            # Subscribe on every connect, not once at startup: the session is
+            # not persisted (MQTTv5, no session expiry), so the broker forgets
+            # our subscriptions whenever the connection drops.
             # Subscribe to HA birth message so we can resend autodiscovery if HA restarts
             client.subscribe(ha_birth_topic)
+            transmitters = userdata[1]
+            for s in transmitters:
+                try:
+                    client.subscribe(s)
+                except Exception as e:
+                    logging.error("Error adding subscription \"%s\": %s" % (s, e))
+            if userdata[2] is not None:
+                for s in userdata[2].mqtt_subscriptions():
+                    try:
+                        client.subscribe(s)
+                    except Exception as e:
+                        logging.error("Error adding bms_settings subscription \"%s\": %s" % (s, e))
             client.publish(birth_topic, payload=birth_payload, qos=1, retain=True)
             if ha_payload:
                 client.publish(ha_discovery_topic, payload=json.dumps(ha_payload), qos=1, retain=False)
@@ -496,20 +517,6 @@ def main():
         notifier.stop()
         sys.exit(1)
 
-    logging.info("Adding MQTT subscriptions")
-    for s in transmitters:
-        try:
-            # message_callback_add()
-            client.subscribe(s)
-        except Exception as e:
-            logging.error("Error adding subscribtion \"%s\": %s" % (s, e))
-    if bms_settings is not None:
-        for s in bms_settings.mqtt_subscriptions():
-            try:
-                client.subscribe(s)
-            except Exception as e:
-                logging.error("Error adding bms_settings subscription \"%s\": %s" % (s, e))
-
     if jsoncfg.node_exists(c.canopen.sync_interval):
         logging.info("Adding CANopen sync master")
         sync_interval= c.canopen.sync_interval()
@@ -575,6 +582,13 @@ def main():
                                 if (r[0] == mqtt.MQTT_ERR_SUCCESS):
                                     times[t] = time.monotonic()
                                     topicpayloads[t] = p
+                                elif r[0] == mqtt.MQTT_ERR_NO_CONN:
+                                    # Log once per outage, not once per frame; on_connect
+                                    # reports the total. Not recording topicpayloads means
+                                    # the value is republished after reconnect.
+                                    if publish_drops["count"] == 0:
+                                        logging.warning("MQTT not connected; dropping publishes until reconnect")
+                                    publish_drops["count"] += 1
                                 else:
                                     logging.error("Error publishing message \"%s\" to topic \"%s\". Return code %s: %s" % (p, t, str(r[0]), mqtt.error_string(r[0])))
                 except Exception as e:
