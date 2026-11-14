@@ -61,14 +61,14 @@ def sync_master(bus, count):
         data= [sync_master.counter]
     else:
         data= []
-    bus.send(can.Message(extended_id= False, arbitration_id= 0x080, data= data))
+    bus.send(can.Message(is_extended_id= False, arbitration_id= 0x080, data= data))
 
 def do_nmt_auto_start(m, bus):
     if (m.arbitration_id & ~0x7F)==0x700:
         device_id = m.arbitration_id & 0x7F
         if len(m.data)>0 and m.data[0]!=5:
             msg = bytearray([1, device_id])
-            bus.send(can.Message(extended_id= False, arbitration_id= 0x000, data= msg))
+            bus.send(can.Message(is_extended_id= False, arbitration_id= 0x000, data= msg))
 
 
 def testForStringList(l, n):
@@ -209,7 +209,12 @@ class MQTT2CanMessage:
                 raise ValueError("Error parsing topic \"%s\": %s" % (topic, e))
 
         try:
+            # paho delivers payloads as bytes; parse only matches str
+            if isinstance(payload, (bytes, bytearray)):
+                payload= payload.decode("utf-8")
             payload_vals= self.payload_template.search(payload)
+            if payload_vals is None:
+                raise ValueError("does not match payload_template")
             vd.update(payload_vals.named)
         except Exception as e:
             raise ValueError("Error parsing payload \"%s\": %s" % (payload, e))
@@ -331,7 +336,7 @@ def main():
                     continue
 
                 try:
-                    m= can.Message(extended_id= False, arbitration_id= canid, data= data)
+                    m= can.Message(is_extended_id= False, arbitration_id= canid, data= data)
                 except Exception as e:
                     logging.error("Error forming can message id= \"%s\", data \"%s\" via transmitter %s: %s" % (canid, data, tmtr.name, e))
                     tmtr.error_count+= 1
