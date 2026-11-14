@@ -320,8 +320,15 @@ def main():
         CANBus= userdata[0]
         transmitters= userdata[1]
         bms_settings= userdata[2]
-        if bms_settings is not None and bms_settings.handle_mqtt(message.topic, message.payload):
-            return
+        if bms_settings is not None:
+            # This runs on paho's network thread: an exception escaping here
+            # kills that thread and leaves the process up but deaf to MQTT.
+            try:
+                if bms_settings.handle_mqtt(message.topic, message.payload):
+                    return
+            except Exception as e:
+                logging.error("BMS settings: error handling \"%s\": %s" % (message.topic, e))
+                return
         for sub in filter(lambda sub: mqtt.topic_matches_sub(sub, message.topic), transmitters.keys()):
             tmtrs= transmitters[sub]
             for tmtr in tmtrs:

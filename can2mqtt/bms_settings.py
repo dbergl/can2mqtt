@@ -146,6 +146,10 @@ class BmsSettings(can.Listener):
         except Exception as e:
             logging.error("BMS settings: cannot parse payload for %s: %r (%s)", name, payload, e)
             return
+        # float() accepts "nan"/"inf", which slip past the min/max comparisons
+        if not math.isfinite(value):
+            logging.error("BMS settings: rejecting non-finite value for %s: %r", name, payload)
+            return
 
         if not self.cache_ready:
             logging.error(
@@ -161,12 +165,12 @@ class BmsSettings(can.Listener):
             logging.error("BMS settings: %s=%s above max %s", name, value, entry["max"])
             return
 
-        raw = round(value / entry["scale"])
         try:
+            raw = round(value / entry["scale"])
             raw_bytes = raw.to_bytes(entry["size"], "big", signed=entry["signed"])
-        except OverflowError as e:
-            logging.error("BMS settings: %s=%s raw=%s does not fit %d-byte %s: %s",
-                          name, value, raw, entry["size"],
+        except (OverflowError, ValueError) as e:
+            logging.error("BMS settings: %s=%s does not fit %d-byte %s: %s",
+                          name, value, entry["size"],
                           "signed" if entry["signed"] else "unsigned", e)
             return
 
